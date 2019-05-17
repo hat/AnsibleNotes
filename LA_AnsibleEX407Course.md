@@ -33,7 +33,7 @@
 * Can define groups of hosts, groups of groups, group level variables
 * Variables used within inventory to control how ansible connects and interacts with hosts
 
-```
+```cli
 # run the ping module on the group inside the inventory.ini file
 ansible -i inventory.ini {group} -m ping
 ```
@@ -64,7 +64,7 @@ ansible -i inventory.ini {group} -m ping
 * Fact gathering may be disabled --- does have performance hit
 * Facts may be cached between playbook execution but not default
 
-```
+```cli
 # Gathers facts from the host
 ansible all -m setup
 ```
@@ -88,3 +88,272 @@ ansible all -m setup
   * ansible_managed
   * forks
   * inventory
+
+#### Ansible Commands
+
+##### Ad-Hoc Ansible Commands
+
+* Ad-Hoc Ansible Command has the same capabilites as a playbook
+* Effecticely one-liners of what to execute like a single bash command
+* Three categories for use
+  * Operational commands
+    * checking log contents
+    * Daemon control - stop/start specific daemon, etc...
+    * Process management - validate process using CPU, kill process, etc...
+  * Information commands
+    * Check installed software
+    * Check system properties
+    * Gather system performance information - cpu, disk space, etc...
+  * Research
+    * Work with unfamiliar modules on test systems
+    * Practice for playbook engineering
+* Command: `ansible`
+* Flags
+  * `-i` inventory file to use
+  * `-b` become - default is root
+  * `-m` module to use
+  * `-a` arguments to pass to module
+  * `-f` fork for parralelism default is 5 hosts at a time
+* Common Modules
+  * Ping - validates server is up and reachable, no required parameters
+  * Setup - gather ansible facts, no required parameters
+  * Yum - uses yum package manager, 'name' and 'state' parameters required
+  * Service - controls daemons, 'name' and 'state' parameters required
+  * User - manipulate system users, 'name' parameter required
+  * Copy - copy files, 'src' and 'dst' parameters required
+  * File - works with files, 'path' parameter required
+  * Git - interact with git repos, 'repo' and 'dest' parameters required
+
+```cli
+# example ad-hoc commands
+ansible {host} -i {inventory} -b -m yum -a "name=elinks state=latest"
+```
+
+#### Inventory Management
+
+##### What is the Inventory
+
+* Inventory is a list of hosts Ansible manages
+* Inventory location possibilities
+  * Default - /etc/ansible/hosts
+  * Specified by CLI - ansible -i {inventory}
+  * Set in ansible.cfg
+* May contain hosts, patterns, groups, and variables
+* May specify the inventory as a directory containing various inventory files (static and dynamic)
+* Inventory file can be INI or YAML
+* Inventories can be static or dynamic (via script)
+
+```yaml
+# Example YAML inventory
+---
+all:
+    hosts:
+        null.example.com
+            ansible_port: 5556
+            ansible_host: 192.168.0.10
+    children:
+        webservers:
+            hosts:
+                httpd1.example.com
+                httpd2.example.com
+            vars:
+                http_port: 8080
+        labservers:
+            hosts:
+                lab[01:99].example.com
+```
+
+```ini
+# Example ini inventory
+mail.example.com ansible_port=5556 ansible_host=192.168.0.10
+
+[webservers]
+httpd1.example.com
+httpd2.example.com
+
+[webservers:vars]
+http_port=8080
+
+[labservers]
+lab[01:99].example.com
+```
+
+##### Static vs Dynamic
+
+|   Static  |   Dyanamic    |
+|   ------  |   ----------- |
+|   INI or YAML format    |   Executable (bash script, python, etc...)    |
+|   Maintained by hand  |     Script returns JSON containing inventory  |
+|   Easy to manage  |   Useful for cloud resources and others sudden to change  |
+
+##### Variables in Inventories
+
+* Recommended to not store variables in inventory file
+* Should store in YAML files located relative to inventory file
+  * group_vars
+  * host_vars
+
+*Example of inventory variables below*
+
+```cli
+[user@computer inventory]$ cat inventory
+mail.example.com
+
+[httpd]
+httpd1.example.com 
+httpd2.example.com
+```
+
+```cli
+[user@computer inventory]$ ls
+group_vars
+host_vars
+inventory
+```
+
+```cli
+[user@computer inventory]$ cat group_vars\httpd
+http_port:8080
+[user@computer inventory]$ cat host_vars/httpd1.example.com
+opt_dir: /opt
+```
+
+```cli
+[user@computer inventory]$ ansible httpd1.example.com -i inventory -a "ls -l {{opt_dir}}"
+```
+
+##### Dynamic Inventories
+
+* Specifying executable as inventory file
+* JSON output is expected to be returned to STDOUT
+* Program/ script must respond to two possible paramters
+  * --list
+  * --host[hostname]
+* Dynamic inventories can pull inventory from
+  * Cloud provider
+  * LDAP
+  * Cobbler
+  * other CMDB software etc...
+* A lot of companies have a script available for dynamic inventories
+
+#### Ansible Plays and Playbooks
+
+##### Commonly Used Ansible Modules
+
+* Working with files
+  * copy
+  * archive
+  * unarchive
+  * get_url
+* user, group - modify user and group permissions
+* ping - check host connectivity
+* service - get info from host
+* yum - used for package management
+* lineinfile - drop lines into any given file
+* htpasswd - modify htpasswd file
+* shell, command - shell sets environment, command has no environment
+* script - copies script provided, sets up shell, executes script
+* debug - get from stdout and stderr and write out
+* More modules at https://docs.ansible.com/ansible/latest/modules/modules_by_category.html
+
+##### Create Playbooks
+
+* Play maps group of hosts to well-defined roles
+* Playbooks orchestrate more complex activities such as system or application deployment
+* Playbooks written in YAML
+* Can retry playbook on failed hosts only
+* Limit allows playbook to run against specified hosts
+* Watch out for spaces/ indentation, very important to Ansible
+
+*Example of playbook below*
+
+```yaml
+---
+- hosts: webservers
+    remote_user: root
+
+    tasks:
+    - name: ensure apache is at the latest version
+      yum: name=httpd state=latest
+    - name: write the apache config file
+      template: src=/srv/httpd.j2 dest=/etc/httpd.conf
+
+- hosts: databases
+    remote_user: root
+
+    tasks:
+    - name: ensure postgresql is at the latest version
+      yum: name=postgresql state=latest
+    - name: ensure that postgresql is started
+      service: name=postgresql state=started
+```
+
+##### Variables to Retrieve Command Result
+
+* `register` keyword saves output of play
+* May be referenced within the play
+* Use dot reference to extract info out of variable (JSON syntax)
+
+*Sample below*
+
+```yaml
+---
+- hosts: example.com
+  tasks:
+    - name: copy a file
+      copy:
+        src: testfile
+        dest: /home/user/test
+        mode: 400
+      register: var
+   - name: output debug info
+      debug: msg="debug info is {{var}}"
+```
+
+##### Play Execution Conditionals
+
+* Conditionals
+  * when - like an if
+  * with_items - like a loop with items
+  * with_files - nearly identical with with_items
+
+*below is example of with_items conditional*
+
+```yaml
+---
+- hosts: local
+  become: yes
+  tasks:
+    - name: create users
+      user:
+        name: "{{item}}"
+      with_items:
+        - sam
+        - john
+        - bob
+```
+
+* Handler will take action when called
+* `notify` keywork calls handler
+* Handler looks for `listen` keywork on handler to execute
+* No matter how many times notify is called handler only called once
+
+*example of playbook calling handler below*
+
+```yaml
+-name: template configuration file
+  template:
+    src: template.j2
+    dest: /etc/foo.conf
+  notify:
+    -roll web
+```
+
+```yaml
+handlers:
+- name: restart apache
+  service:
+    name: apache
+    state: restarted
+  listen: "roll web"
+```

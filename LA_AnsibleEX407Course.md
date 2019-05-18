@@ -1,10 +1,21 @@
 ## Red Hat Certified Specialist in Ansible Automation (EX407) Preparation Course
 
+### Appendix
+
+* [YAML Brief](#yamlbrief)
+* [Core Components of Ansible](#corecomponents)
+* [Ansible Commands](#commands)
+* [Inventory Management](#inventorymanagement)
+* [Plays and Playbooks](#playbooks)
+* [Templates](#templates)
+
+
+
 #### Resources
 
 * [Ansible Diagram](https://www.lucidchart.com/documents/view/4b454bc1-80ea-4753-9457-7496a5bf661e)
 
-#### YAML Brief
+#### <a name="yamlbrief">YAML Brief</a>
 
 * YAML is markup languages used for formatting data
 * Ansible uses YAML
@@ -22,7 +33,7 @@
   * Yes and No - must be escaped in quotes if boolean not wanted
   * Floating Point Numbers taken as numeric unless quoted
 
-#### Core Components of Ansible
+#### <a name="corecomponents">Core Components of Ansible</a>
 
 ##### Inventories
 
@@ -89,7 +100,7 @@ ansible all -m setup
   * forks
   * inventory
 
-#### Ansible Commands
+#### <a name=commands>Ansible Commands</a>
 
 ##### Ad-Hoc Ansible Commands
 
@@ -129,7 +140,7 @@ ansible all -m setup
 ansible {host} -i {inventory} -b -m yum -a "name=elinks state=latest"
 ```
 
-#### Inventory Management
+#### <a name="inventorymanagement">Inventory Management</a>
 
 ##### What is the Inventory
 
@@ -236,7 +247,7 @@ opt_dir: /opt
   * other CMDB software etc...
 * A lot of companies have a script available for dynamic inventories
 
-#### Ansible Plays and Playbooks
+#### <a name="playbooks">Ansible Plays and Playbooks</a>
 
 ##### Commonly Used Ansible Modules
 
@@ -342,18 +353,102 @@ opt_dir: /opt
 
 ```yaml
 -name: template configuration file
-  template:
-    src: template.j2
-    dest: /etc/foo.conf
-  notify:
-    -roll web
+  tasks:
+    template:
+      src: template.j2
+      dest: /etc/foo.conf
+    notify:
+      -roll web
 ```
 
 ```yaml
 handlers:
 - name: restart apache
-  service:
-    name: apache
-    state: restarted
-  listen: "roll web"
+  tasks:
+    service:
+      name: apache
+      state: restarted
+    listen: "roll web"
 ```
+
+##### Configure Error Handling
+
+* Ignore acceptable errors to not stop execution
+* Define failure conditions
+* Define "changed"
+  * `changed_when` keyword to set a change condition
+* Blocks
+  * Try/catch
+  * `block` keyword for beginning of block
+  * `rescue` keyword for what to do if block fails
+  * `always` keyword for what to run regardless of block status
+
+*Below is ignore error example - it will keep running if get_url fails on a specific host*
+
+```yaml
+---
+- hosts: local
+  tasks:
+    - name: get files
+      get_url:
+        url: "http://{{item}}/index.html"
+        dest: "/tmp/{{item}}"
+      ignore_errors: yes
+      with_items:
+        - server1
+        - server2
+```
+
+*Below is block groups example - also has rescue and always*
+
+```yaml
+---
+- hosts: local
+  tasks:
+    - name: get file
+      block:
+        - get_url:
+            url: "http://server1/index.html"
+            dest: "/tmp/index_file"
+      rescue:
+        - debug: msg="The file doesn't exist!"
+      always:
+        - debug: msg="Play done!"
+```
+
+##### Tags
+   
+* Tags allow user to selectively run specified tasks in playbooks
+* Can use `--tags` to run specific plays with tag or `--skip-tags` to run all plays without tag
+
+*Below is an example of tags*
+
+```yaml
+---
+- host: web
+  become: yes
+  tasks:
+    - name: deploy app binary
+      copy:
+        src: /home/user/apps/hello
+        dest: /var/www/html/hello
+      tags:
+        - webdeploy
+- host: db
+  become: yes
+  tasks:
+    - name: deploy db script
+      copy:
+        src: /home/user/apps/script.sql
+        dest: /opt/deb/scripts/script.sql
+      tags:
+        - dbdeploy
+```
+
+*Below example of only running play with tag of dbdeploy*
+
+```bash
+ansible-playbook deploy.yml --tags dbdeploy
+```
+
+#### <a name="templates">Templates</a>

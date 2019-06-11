@@ -8,6 +8,13 @@
 * [Inventory Management](#inventorymanagement)
 * [Plays and Playbooks](#playbooks)
 * [Templates](#templates)
+* [Variables and Facts](#vars)
+* [Roles](#roles)
+* [Galaxy](#galaxy)
+* [Parrallel](#parallel)
+* [Vault](#vault)
+* [Tower](#tower)
+* [Documentation](#doc)
 
 
 
@@ -452,3 +459,246 @@ ansible-playbook deploy.yml --tags dbdeploy
 ```
 
 #### <a name="templates">Templates</a>
+
+##### Template
+
+* Skeletal file that can be dynamically completed using variables
+* Mostly used for file management
+* Usually uses template module within playbook
+* Processed using Jinja2 language - eliminates comma errors and space errors
+
+##### Template Module
+
+* Template module used to deploy template modules
+* Allowed to put ansible variables into Jinja2 template files
+* Two required parameters
+  * src - template to use on ansible host
+  * dest - where file should be located on target host
+* Optional parameters
+  * validate - requires succesful validation command to run against file prior to deployment
+
+
+*Below is example of using the template module*
+
+```yaml
+---
+- hosts: webserver
+
+    tasks:
+    - name: ensure apache is at latest version
+      yum: name=httpd state=latest
+    - name: write the apache config file
+      template: src=/srv/httpd.j2 dest=/etc/httpd.conf
+```
+
+#### <a name=vars>Variables and Facts</a>
+
+##### Variables
+
+* Names must start with a letter and can contain letters, numbers, underscores
+* Places to define variables
+  * vars, vars_files, vars_prompt
+  * Command Line: ansible-playbook play.yml -e '{"myVar":"myValue","anotherVar":"anotherValue"}'
+  * Roles, blocks, inventories
+* YAML allows python style dictonaries and variables
+* Two ways to access dictionaries
+  * Bracket - employee['name']
+  * Dot notation - employee.name
+
+##### Magic Variables and Filters
+
+* Special variables are known as magic variables
+* Magic Variables
+  * `hostvars`: look at facts about other hosts in inventory
+    * `{{hostvars['node1']['ansible_distribution']}}`
+  * `groups`: provides inventory information
+    * `{{groups['webservers']}}`
+* Jinja2 filters can manipulate text format
+* Filters are applied by pipe `|`
+* [Jinja2 filters](http://jinja.pocoo.org/docs/2.10/templates/#builtin.filters)
+  * `{{groups['webservers']|join(' ')}}`
+
+*Example of variables in playbook*
+
+```yaml
+---
+- hosts: local
+  vars:
+    inv_file: /home/user/vars/inv.txt
+  tasks:
+  - name: create file
+    file:
+      path: "{{inv_file}}"
+      line: "{{groups['labservers']|join(' ')}}"
+```
+
+##### Facts
+
+* Information discovered by Ansible about target system
+* Two ways to collect facts
+  * Setup module
+  * Gathered by default when playbook is executed
+* Fact gathering in playbooks may be disabled using gather_facts attribute
+* How to use
+  * All facts may be gathered through variables
+    * `ansible sample -m setup -a "filter=*ipv4"`
+  * Possible to use regex, in ad-hoc mode, for pattern matching
+  * Facts can be used with conditionals to have plays for different hosts
+* Custom facts using facts.d
+  * Create custom facts using facts.d directory `/etc/ansible/facts.d`
+  * Put directory and facts on server you want the facts to be shown
+  * Can be INI, JSON, or executables\
+  * Create /etc/ansible directory
+  * Package Ansible NOT NEEDED - just directory
+  * Custom facts are in ansible_local of returned facts
+
+#### <a name=roles>Roles</a>
+
+##### Roles
+
+* Roles provide a way of automatically loading certain var_files, tasks, and handlers based on a known file structure
+* Not all directories required only what is to be used
+* Ansible Galaxy command can create folder structure or manually creating directories
+* Directory structure
+  * tasks - where the plays are defined
+  * vars - variable files go here
+  * defaults - lowest precedence variable files go here, usually overwritten by vars or in playbooks
+  * handlers - tasks that are called via the notify keyword
+  * files - for ordinary files not templates (.txt, etc...)
+  * template - for template files such as Jinja2 etc...
+  * meta - defines metadata and configuration for a role such as dependencies, etc...
+
+*Sample of directory structure*\
+
+```bash
+ls /etc/ansible/roles/sample_role
+    tasks
+        -> main.yml
+        -> playbook1.yml
+        -> playbook2.yml
+    handlers
+        -> main.yml
+    files
+        -> test.txt
+    templates
+        -> test.j2
+    vars
+        -> var1.yml
+        -> var2.yml
+    defaults
+        -> defaultvar1.yml
+    meta
+```
+
+##### In-Line Roles and Role Dependencies
+
+* Include roles inside playbooks `roles:` or `include_role` module - include_role will precompile
+* `dependencies` module sets dependencies on another role
+* Must have `allow_duplicates: true` in metadata to have role played more than once (probably won't be used)
+
+#### <a name=galaxy>Ansible Galaxy</a>
+
+##### Download Roles from Ansible Galaxy
+
+* Galaxy is a large public repository of Ansible roles
+* `ansible-galaxy` binary that ships with Ansible
+  * `ansible-galaxy init <role_name>`: creates new role in current directory with folder structure
+  * `ansible-galaxy install <username.role>`: download role from galaxy.ansible.com
+  * `ansible-galaxy list`: list current installed roles
+  * remove, search, and login are also useful commands
+* Can install a galaxy role in a playbook (ansible inception :P )
+
+#### <a name=parallel>Parallelism in Ansible</a>
+
+##### Parallelism
+
+* Built into ansible
+* Ability for control node to work on multiple hosts in parallel
+* Default creates 5 forks to execute actions in parallel
+* Ansible documentation recommends no more than 50 forks, 5-10 recommended for even small hosts
+* Change default value in ansible.cfg
+* `-f`: Flag to set fork command
+* `serial`: Keyword confine number of simultaneous updated within playbook
+
+*Example of serial keywork in playbook - will do one host, then 2, then 50% of remaining followed by other 50%*
+
+```yaml
+---
+- hosts: labservers
+  become: yes
+  serial:
+    - 1
+    - 2
+    - 50%
+  max_fail_percentage: 30 # would consider playbook failure if more than 30% fail
+  tasks:
+    - name: add host entry
+      lineinfile:
+        path: /etc/hosts
+        line: 'user1 ansible.labserver.com'
+```
+
+#### <a name=vault>Ansible Vault</a>
+
+##### Ansible-Vault Command
+
+* `ansible-vault encrypt` : Encrypts a file and requires password to unencrypt
+* `ansible-vault rekey` : Chnage password of encrypted file
+* `--vault-id` feature replaces `--ask-vault-password` and `--ask-vault-file` flags
+* `no_log` will disable logging of some information
+* `ansible-vault edit` : prompts password to allow editing
+* `ansible-vault encrypt_string` : encrypt string to put in playbooks
+
+##### Ansible-Vault in Playbooks
+
+* Vault file is a text file containing only the password - will not be encrypted so secure the file
+* `ansible-vault encrypt --vault-id prod@vault secure.txt` : encrypts secure.txt and assigns id of prod and uses `vault` file containing password 
+* `ansible-playbook vault.yml --vault-id prod@vault` : runs playbook using 'vault' file containing password
+* Unencrypted data shows on log if you don't set no_log in playbook settings
+
+*Example of no_log using encrypted file*
+```yaml
+---
+- hosts: localhost
+  vars_files:
+    - /home/user/vault/secure
+  tasks:
+  - name: Output mesage
+    shell: echo {{message}} > /home/user/vault/deployed.txt
+    no_log: true
+```
+
+#### <a name=tower>Ansible Tower</a>
+
+##### Introduction to Ansible Tower
+
+* Not installed by default on Ansible
+* Tower provides web server interface for Ansible
+* 10 hosts maximum without license
+* User permission and audit trail are key benefits
+
+##### Installing Ansible Tower
+
+* Untar tarball and get license key from email
+* README explains install steps
+* Change the three password in the inventory file
+* `/etc/tower/settings.py` : has some base configuration for Tower
+* Once installs configures and sets up the requirements running on Port 443
+
+##### Working with Ansible Tower
+
+* Add Hosts, Create Playbooks, Set SCM, etc...
+* Web GUI very powerful but easy to navigate
+* Need to provide machine credential to run command from Tower - can use private key or client specific
+* Playbook is through Project tab
+* Template is task repeatable task
+
+#### <a name=doc>Documentation</a>
+
+##### CLI
+
+* `ansible-doc {module}` : `-all` `-list` shows all module information
+
+##### HTTP
+
+* <a href="https://docs.ansible.com">docs.ansible.com</a>
